@@ -39,12 +39,14 @@ def get_additional_financial_metrics(ticker):
         roe = stock.info.get('returnOnEquity', None)
         beta = stock.info.get('beta', None)
         eps = stock.info.get('trailingEps', None)
+        wacc = stock.info.get('wacc', 0.0815)  # Use market-based discount rate if available, else default to 8.15%
         return {
             'PE Ratio': pe_ratio,
             'Debt to Equity': debt_to_equity,
             'ROE': roe,
             'Beta': beta,
-            'EPS': eps
+            'EPS': eps,
+            'WACC': wacc
         }
     except Exception as e:
         print(f"Error retrieving additional financial metrics: {e}")
@@ -75,7 +77,8 @@ def analyze_sentiment(text):
 
 # Function to calculate discounted cash flow (DCF) with growth rate
 def discounted_cash_flow(free_cash_flow, discount_rate, sentiment_score, growth_rate=0.03, years=5):
-    adjusted_rate = discount_rate * (1 - sentiment_score)  # Example adjustment
+    sentiment_weight = 0.5  # Limit sentiment adjustment to reduce overreaction
+    adjusted_rate = discount_rate * (1 - sentiment_weight * sentiment_score)  # Adjust discount rate proportionally by sentiment
     adjusted_rate = max(0.01, adjusted_rate)  # Prevent adjusted_rate from becoming negative or zero
     total_value = sum(free_cash_flow * (1 + growth_rate)**i / (1 + adjusted_rate)**i for i in range(1, years + 1))
     return total_value
@@ -102,9 +105,10 @@ def main():
             user_operating_cash_flow = None
             user_capital_expenditure = None
 
-        # Allow user to enter custom discount rate and growth rate
-        discount_rate = st.number_input("Enter Discount Rate (as a decimal, e.g., 0.1 for 10%):", min_value=0.0, value=0.1)
-        growth_rate = st.number_input("Enter Growth Rate (as a decimal, e.g., 0.03 for 3%):", min_value=0.0, value=0.03)
+        # Allow user to enter custom discount rate and growth rate or use market-based rates
+        financial_metrics = get_additional_financial_metrics(ticker)
+        discount_rate = st.number_input("Enter Discount Rate (as a decimal, e.g., 0.1 for 10%) or use market-based rate (WACC)", min_value=0.0, value=financial_metrics.get('WACC', 0.0815))
+        growth_rate = st.number_input("Enter Growth Rate (as a decimal, e.g., 0.03 for 3%) or use analyst estimates", min_value=0.0, value=0.05)
 
         # Step 1: Get Stock Data
         st.header("Stock Data")
@@ -124,7 +128,6 @@ def main():
 
         # Step 3: Get Additional Financial Metrics
         st.header("Additional Financial Metrics")
-        financial_metrics = get_additional_financial_metrics(ticker)
         st.write(financial_metrics)
 
         # Allow user to enter missing financial metrics manually if unavailable
