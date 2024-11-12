@@ -18,13 +18,13 @@ def get_financial_data(ticker):
             operating_cash_flow = stock.cashflow.loc['Total Cash From Operating Activities'][0]
         else:
             print("Operating cash flow data is missing. Using an estimated default value.")
-            operating_cash_flow = 5000000000  # Example default value for operating cash flow
+            operating_cash_flow = 2000000000  # More conservative default value for operating cash flow
 
         if 'Capital Expenditures' in stock.cashflow.index:
             capital_expenditure = stock.cashflow.loc['Capital Expenditures'][0]
         else:
             print("Capital expenditures data is missing. Using an estimated default value.")
-            capital_expenditure = 1000000000  # Example default value for capital expenditures
+            capital_expenditure = 500000000  # More conservative default value for capital expenditures
 
         free_cash_flow = operating_cash_flow - abs(capital_expenditure)
         return free_cash_flow
