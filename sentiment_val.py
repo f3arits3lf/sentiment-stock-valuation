@@ -132,7 +132,7 @@ class SimpleTransformer(nn.Module):
 
     def forward(self, x):
         x = self.transformer_encoder(x)
-        x = x[-1, :, :]  # Take the last output (sequence length, batch size, input_dim)
+        x = x.mean(dim=0)  # Average over the sequence length
         return self.fc(x)
 
 # Function to predict future prices using Transformer model
