@@ -1,7 +1,6 @@
 streamlit
 yfinance
 textblob
-beautifulsoup4
 requests
-google
+beautifulsoup4
 pandas

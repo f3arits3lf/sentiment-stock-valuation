@@ -3,7 +3,6 @@ import yfinance as yf
 from textblob import TextBlob
 import requests
 import pandas as pd
-from googlesearch import search
 from bs4 import BeautifulSoup
 
 # Function to get stock data from Yahoo Finance
@@ -11,24 +10,53 @@ def get_stock_data(ticker):
     stock = yf.Ticker(ticker)
     return stock.history(period='1y')  # Historical data for 1 year
 
-# Function to get news articles using Google search
+# Function to get financial statements for calculating FCF
+def get_financial_data(ticker):
+    stock = yf.Ticker(ticker)
+    try:
+        operating_cash_flow = stock.cashflow.loc['Total Cash From Operating Activities'][0]
+        capital_expenditure = stock.cashflow.loc['Capital Expenditures'][0]
+        free_cash_flow = operating_cash_flow - abs(capital_expenditure)
+        return free_cash_flow
+    except Exception as e:
+        print(f"Error retrieving financial data: {e}")
+        return None
+
+# Function to get additional financial metrics
+def get_additional_financial_metrics(ticker):
+    stock = yf.Ticker(ticker)
+    try:
+        pe_ratio = stock.info.get('trailingPE', None)
+        debt_to_equity = stock.info.get('debtToEquity', None)
+        roe = stock.info.get('returnOnEquity', None)
+        beta = stock.info.get('beta', None)
+        return {
+            'PE Ratio': pe_ratio,
+            'Debt to Equity': debt_to_equity,
+            'ROE': roe,
+            'Beta': beta
+        }
+    except Exception as e:
+        print(f"Error retrieving additional financial metrics: {e}")
+        return {}
+
+# Function to get news articles using News API
 def get_news_articles(ticker):
-    query = f"{ticker} stock news"
-    news_links = [url for url in search(query, num=5, stop=5, pause=2)]
-    news_articles = []
-
-    for link in news_links:
-        try:
-            response = requests.get(link, timeout=5)
-            if response.status_code == 200:
-                soup = BeautifulSoup(response.content, 'html.parser')
-                paragraphs = soup.find_all('p')
-                article_text = ' '.join([para.get_text() for para in paragraphs])
-                news_articles.append(article_text[:1000])  # Limit text length for simplicity
-        except Exception as e:
-            print(f"Error retrieving article from {link}: {e}")
-
-    return news_articles
+    api_key = "40714f13bb7a4f4f92df63f537b78eb7"
+    query = f"{ticker} AND (earnings OR growth OR revenue OR forecast OR stock analysis)"
+    url = f"https://newsapi.org/v2/everything?q={query}&sortBy=popularity&apiKey={api_key}"
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            articles = response.json().get('articles', [])
+            news_articles = [article['description'] for article in articles if article['description']]
+            return news_articles[:5]  # Limit to 5 articles
+        else:
+            print(f"Error fetching news articles: {response.status_code}")
+            return []
+    except Exception as e:
+        print(f"Error retrieving news articles: {e}")
+        return []
 
 # Function to analyze sentiment from text
 def analyze_sentiment(text):
@@ -36,9 +64,10 @@ def analyze_sentiment(text):
     return blob.sentiment.polarity
 
 # Function to calculate discounted cash flow (DCF)
-def discounted_cash_flow(cash_flows, discount_rate, sentiment_score):
+def discounted_cash_flow(free_cash_flow, discount_rate, sentiment_score, years=5):
     adjusted_rate = discount_rate * (1 - sentiment_score)  # Example adjustment
-    total_value = sum(cf / (1 + adjusted_rate)**i for i, cf in enumerate(cash_flows, start=1))
+    adjusted_rate = max(0.01, adjusted_rate)  # Prevent adjusted_rate from becoming negative or zero
+    total_value = sum(free_cash_flow / (1 + adjusted_rate)**i for i in range(1, years + 1))
     return total_value
 
 # Streamlit app
@@ -61,14 +90,23 @@ def main():
             average_sentiment = sum(sentiment_scores) / len(sentiment_scores)
             st.write(f"Average Sentiment Score: {average_sentiment:.2f}")
         else:
+            average_sentiment = 0
             st.write("No news articles found for sentiment analysis.")
 
-        # Step 3: Perform Valuation
+        # Step 3: Get Additional Financial Metrics
+        st.header("Additional Financial Metrics")
+        financial_metrics = get_additional_financial_metrics(ticker)
+        st.write(financial_metrics)
+
+        # Step 4: Perform Valuation
         st.header("Stock Valuation")
-        cash_flows = [100, 150, 200, 250]  # Example cash flows
-        discount_rate = 0.1  # Example discount rate
-        valuation = discounted_cash_flow(cash_flows, discount_rate, average_sentiment if sentiment_scores else 0)
-        st.write(f"Valuation (Adjusted with Sentiment): ${valuation:.2f}")
+        free_cash_flow = get_financial_data(ticker)
+        if free_cash_flow is not None:
+            discount_rate = 0.1  # Example discount rate
+            valuation = discounted_cash_flow(free_cash_flow, discount_rate, average_sentiment)
+            st.write(f"Valuation (Adjusted with Sentiment): ${valuation:.2f}")
+        else:
+            st.write("Unable to retrieve sufficient financial data for valuation.")
 
 if __name__ == "__main__":
     main()
