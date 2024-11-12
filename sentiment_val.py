@@ -191,8 +191,8 @@ def predict_future_prices_transformer(ticker, days=30):
         for _ in range(days):
             y_pred = model(X_input)
             predicted_prices.append(y_pred.item())
-            y_pred_expanded = y_pred.repeat(input_dim).unsqueeze(0)  # Repeat to match input dimension
-            X_input = torch.cat((X_input[:, 1:, :], y_pred_expanded.unsqueeze(1)), dim=1)
+            y_pred_expanded = y_pred.repeat(input_dim).unsqueeze(0).unsqueeze(2)  # Correct dimension for concatenation
+            X_input = torch.cat((X_input[:, 1:, :], y_pred_expanded), dim=1)
 
     predicted_prices = scaler.inverse_transform(np.array(predicted_prices).reshape(-1, input_dim))[:, 0]
     future_dates = [hist.index.max() + datetime.timedelta(days=i) for i in range(1, days + 1)]
