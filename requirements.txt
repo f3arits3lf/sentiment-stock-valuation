@@ -7,5 +7,7 @@ beautifulsoup4
 numpy
 scikit-learn
 statsmodels
+pmdarima
+tensorflow
 matplotlib
 seaborn

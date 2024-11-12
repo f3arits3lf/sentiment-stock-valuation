@@ -5,13 +5,17 @@ import requests
 import pandas as pd
 from bs4 import BeautifulSoup
 import numpy as np
-from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error
+from statsmodels.tsa.statespace.sarimax import SARIMAX
 from statsmodels.tsa.arima.model import ARIMA
 import datetime
 import matplotlib.pyplot as plt
 import seaborn as sns
+import pmdarima as pm
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import LSTM, Dense
 
 # Function to get stock data from Yahoo Finance
 def get_stock_data(ticker):
@@ -97,18 +101,61 @@ def pe_valuation(pe_ratio, earnings_per_share):
         return pe_ratio * earnings_per_share
     return None
 
-# Function to predict future prices using ARIMA
-def predict_future_prices_arima(ticker, days=30):
+# Function to predict future prices using hybrid ARIMA-LSTM model
+def predict_future_prices_hybrid(ticker, days=30):
     stock = yf.Ticker(ticker)
     hist = stock.history(period="1y")
     hist['Close'] = hist['Close'].astype(float)
 
-    model = ARIMA(hist['Close'], order=(5, 1, 0))
-    model_fit = model.fit()
-    forecast = model_fit.forecast(steps=days)
+    # Step 1: ARIMA for Trend Prediction
+    arima_model = pm.auto_arima(hist['Close'], seasonal=False)
+    arima_fit = arima_model.fit(hist['Close'])
+    arima_forecast = arima_fit.predict(n_periods=days)
 
+    # Step 2: Calculate Residuals
+    residuals = hist['Close'] - arima_fit.predict_in_sample()
+
+    # Step 3: LSTM for Residual Prediction
+    residuals = residuals.values.reshape(-1, 1)
+    scaler = MinMaxScaler(feature_range=(0, 1))
+    residuals_scaled = scaler.fit_transform(residuals)
+
+    # Prepare LSTM input
+    time_step = 10
+    def create_dataset(dataset, time_step=1):
+        X, y = [], []
+        for i in range(len(dataset) - time_step - 1):
+            a = dataset[i:(i + time_step), 0]
+            X.append(a)
+            y.append(dataset[i + time_step, 0])
+        return np.array(X), np.array(y)
+
+    X, y = create_dataset(residuals_scaled, time_step)
+    X = X.reshape(X.shape[0], X.shape[1], 1)
+
+    # LSTM model
+    model = Sequential()
+    model.add(LSTM(50, return_sequences=True, input_shape=(time_step, 1)))
+    model.add(LSTM(50, return_sequences=False))
+    model.add(Dense(1))
+    model.compile(optimizer='adam', loss='mean_squared_error')
+    model.fit(X, y, epochs=10, batch_size=1, verbose=2)
+
+    # Predicting future residuals
+    X_input = residuals_scaled[-time_step:].reshape(1, time_step, 1)
+    predicted_residuals = []
+    for _ in range(days):
+        predicted_residual = model.predict(X_input)
+        predicted_residuals.append(predicted_residual[0][0])
+        X_input = np.append(X_input[:, 1:, :], [[predicted_residual]], axis=1)
+
+    predicted_residuals = scaler.inverse_transform(np.array(predicted_residuals).reshape(-1, 1))
+
+    # Step 4: Combine ARIMA Trend and LSTM Residuals
     future_dates = [hist.index.max() + datetime.timedelta(days=i) for i in range(1, days + 1)]
-    return pd.DataFrame({'Date': future_dates, 'Predicted Price': forecast})
+    combined_forecast = arima_forecast + predicted_residuals.flatten()
+
+    return pd.DataFrame({'Date': future_dates, 'Predicted Price': combined_forecast})
 
 # Function to plot predicted prices
 def plot_predictions(predictions_df):
@@ -195,7 +242,11 @@ def main():
         elif analysis_option == "Price Prediction":
             st.header("Future Price Prediction")
             days = st.number_input("Enter number of days to predict (e.g., 30):", min_value=1, value=30)
-            future_prices_df = predict_future_prices_arima(ticker, days)
+            prediction_method = st.selectbox("Select Prediction Method", ["Hybrid ARIMA-LSTM"])
+
+            if prediction_method == "Hybrid ARIMA-LSTM":
+                future_prices_df = predict_future_prices_hybrid(ticker, days)
+
             st.write(future_prices_df)
             plot_predictions(future_prices_df)
 
