@@ -174,7 +174,7 @@ def predict_future_prices_transformer(ticker, days=30):
     for epoch in range(epochs):
         for X, y in dataloader:
             optimizer.zero_grad()
-            X = X.squeeze(0).permute(1, 0).unsqueeze(1)  # Transformer expects input in (seq_length, batch_size, features)
+            X = X.squeeze(0).permute(1, 0).unsqueeze(1)  # Transformer expects input in (seq_length, batch_size, input_dim)
             y_pred = model(X)
             loss = criterion(y_pred, y.unsqueeze(1))  # Match dimensions for MSELoss
             loss.backward()
@@ -188,8 +188,8 @@ def predict_future_prices_transformer(ticker, days=30):
         for _ in range(days):
             y_pred = model(X_input)
             predicted_prices.append(y_pred.item())
-            y_pred_expanded = y_pred.unsqueeze(0).repeat(1, input_dim)  # Repeat to match input dimension
-            X_input = torch.cat((X_input[:, 1:, :], y_pred_expanded.unsqueeze(0)), dim=1)
+            y_pred_expanded = y_pred.unsqueeze(0).repeat(input_dim).unsqueeze(0)  # Repeat to match input dimension
+            X_input = torch.cat((X_input[:, 1:, :], y_pred_expanded.unsqueeze(1)), dim=1)
 
     predicted_prices = scaler.inverse_transform(np.array(predicted_prices).reshape(-1, features.shape[1]))[:, 0]
     future_dates = [hist.index.max() + datetime.timedelta(days=i) for i in range(1, days + 1)]
