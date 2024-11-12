@@ -132,7 +132,7 @@ class SimpleTransformer(nn.Module):
 
     def forward(self, x):
         x = self.transformer_encoder(x)
-        x = x.mean(dim=0)  # Average over the sequence length
+        x = x.mean(dim=1)  # Average over the sequence length
         return self.fc(x)
 
 # Function to predict future prices using Transformer model
@@ -177,7 +177,7 @@ def predict_future_prices_transformer(ticker, days=30):
     for epoch in range(epochs):
         for X, y in dataloader:
             optimizer.zero_grad()
-            X = X.squeeze(0).permute(1, 0, 2)  # Correct input dimensions for Transformer (seq_length, batch_size, input_dim)
+            X = X.permute(1, 0, 2)  # Correct input dimensions for Transformer (seq_length, batch_size, input_dim)
             y_pred = model(X)
             loss = criterion(y_pred, y.unsqueeze(1))  # Match dimensions for MSELoss
             loss.backward()
