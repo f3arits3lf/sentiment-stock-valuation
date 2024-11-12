@@ -128,11 +128,11 @@ class SimpleTransformer(nn.Module):
         self.input_dim = input_dim
         encoder_layers = nn.TransformerEncoderLayer(d_model=input_dim, nhead=nhead, dim_feedforward=hidden_dim)
         self.transformer_encoder = nn.TransformerEncoder(encoder_layers, num_layers=num_layers)
-        self.fc = nn.Linear(input_dim * 10, 1)  # Fully connected layer for output
+        self.fc = nn.Linear(input_dim, 1)  # Fully connected layer for output
 
     def forward(self, x):
         x = self.transformer_encoder(x)
-        x = x.view(1, -1)  # Flatten for fully connected layer
+        x = x[-1, :, :]  # Take the last output (sequence length, batch size, input_dim)
         return self.fc(x)
 
 # Function to predict future prices using Transformer model
@@ -174,9 +174,9 @@ def predict_future_prices_transformer(ticker, days=30):
     for epoch in range(epochs):
         for X, y in dataloader:
             optimizer.zero_grad()
-            X = X.squeeze(0).permute(1, 0)  # Transformer expects input in (seq_length, batch_size, features)
+            X = X.squeeze(0).permute(1, 0).unsqueeze(1)  # Transformer expects input in (seq_length, batch_size, features)
             y_pred = model(X)
-            loss = criterion(y_pred, y)
+            loss = criterion(y_pred, y.unsqueeze(1))  # Match dimensions for MSELoss
             loss.backward()
             optimizer.step()
 
@@ -188,7 +188,7 @@ def predict_future_prices_transformer(ticker, days=30):
         for _ in range(days):
             y_pred = model(X_input)
             predicted_prices.append(y_pred.item())
-            y_pred_expanded = y_pred.unsqueeze(0).unsqueeze(0).repeat(1, input_dim)  # Repeat to match input dimension
+            y_pred_expanded = y_pred.unsqueeze(0).repeat(1, input_dim)  # Repeat to match input dimension
             X_input = torch.cat((X_input[:, 1:, :], y_pred_expanded.unsqueeze(0)), dim=1)
 
     predicted_prices = scaler.inverse_transform(np.array(predicted_prices).reshape(-1, features.shape[1]))[:, 0]
