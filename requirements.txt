@@ -1,0 +1,7 @@
+streamlit
+yfinance
+textblob
+beautifulsoup4
+requests
+google
+pandas
