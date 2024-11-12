@@ -71,12 +71,18 @@ def analyze_sentiment(text):
     blob = TextBlob(text)
     return blob.sentiment.polarity
 
-# Function to calculate discounted cash flow (DCF)
-def discounted_cash_flow(free_cash_flow, discount_rate, sentiment_score, years=5):
+# Function to calculate discounted cash flow (DCF) with growth rate
+def discounted_cash_flow(free_cash_flow, discount_rate, sentiment_score, growth_rate=0.03, years=5):
     adjusted_rate = discount_rate * (1 - sentiment_score)  # Example adjustment
     adjusted_rate = max(0.01, adjusted_rate)  # Prevent adjusted_rate from becoming negative or zero
-    total_value = sum(free_cash_flow / (1 + adjusted_rate)**i for i in range(1, years + 1))
+    total_value = sum(free_cash_flow * (1 + growth_rate)**i / (1 + adjusted_rate)**i for i in range(1, years + 1))
     return total_value
+
+# Function to perform valuation using P/E multiple
+def pe_valuation(pe_ratio, earnings_per_share):
+    if pe_ratio is not None and earnings_per_share is not None:
+        return pe_ratio * earnings_per_share
+    return None
 
 # Streamlit app
 def main():
@@ -120,10 +126,22 @@ def main():
         free_cash_flow = get_financial_data(ticker, user_input, user_operating_cash_flow, user_capital_expenditure)
         if free_cash_flow is not None:
             discount_rate = 0.1  # Example discount rate
-            valuation = discounted_cash_flow(free_cash_flow, discount_rate, average_sentiment)
-            st.write(f"Valuation (Adjusted with Sentiment): ${valuation:.2f}")
+            growth_rate = 0.03  # Example growth rate
+            dcf_valuation = discounted_cash_flow(free_cash_flow, discount_rate, average_sentiment, growth_rate)
+            st.write(f"DCF Valuation (Adjusted with Sentiment and Growth Rate): ${dcf_valuation:.2f}")
         else:
             st.write("Unable to retrieve sufficient financial data for valuation. Please enter the data manually if available.")
+
+        # Step 5: Perform P/E Valuation
+        st.header("P/E Valuation")
+        if financial_metrics['PE Ratio'] is not None and 'trailingEps' in stock_data.columns:
+            pe_valuation_value = pe_valuation(financial_metrics['PE Ratio'], stock_data['trailingEps'][0])
+            if pe_valuation_value is not None:
+                st.write(f"P/E Valuation: ${pe_valuation_value:.2f}")
+            else:
+                st.write("Unable to calculate P/E valuation due to missing earnings per share data.")
+        else:
+            st.write("P/E ratio or earnings per share data is unavailable for P/E valuation.")
 
 if __name__ == "__main__":
     main()
