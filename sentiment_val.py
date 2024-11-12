@@ -123,6 +123,8 @@ class StockPriceDataset(Dataset):
 class SimpleTransformer(nn.Module):
     def __init__(self, input_dim, nhead, hidden_dim, num_layers):
         super(SimpleTransformer, self).__init__()
+        # Ensure input_dim is divisible by nhead
+        assert input_dim % nhead == 0, "input_dim must be divisible by nhead"
         self.input_dim = input_dim
         encoder_layers = nn.TransformerEncoderLayer(d_model=input_dim, nhead=nhead, dim_feedforward=hidden_dim)
         self.transformer_encoder = nn.TransformerEncoder(encoder_layers, num_layers=num_layers)
@@ -158,6 +160,10 @@ def predict_future_prices_transformer(ticker, days=30):
     nhead = 2
     hidden_dim = 128
     num_layers = 2
+    # Ensure input_dim is divisible by nhead
+    if input_dim % nhead != 0:
+        input_dim = input_dim + (nhead - (input_dim % nhead))  # Adjust input_dim to be divisible by nhead
+
     model = SimpleTransformer(input_dim, nhead, hidden_dim, num_layers)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     criterion = nn.MSELoss()
@@ -185,7 +191,7 @@ def predict_future_prices_transformer(ticker, days=30):
             y_pred_expanded = y_pred.unsqueeze(0).unsqueeze(0).repeat(1, input_dim)  # Repeat to match input dimension
             X_input = torch.cat((X_input[:, 1:, :], y_pred_expanded.unsqueeze(0)), dim=1)
 
-    predicted_prices = scaler.inverse_transform(np.array(predicted_prices).reshape(-1, input_dim))[:, 0]
+    predicted_prices = scaler.inverse_transform(np.array(predicted_prices).reshape(-1, features.shape[1]))[:, 0]
     future_dates = [hist.index.max() + datetime.timedelta(days=i) for i in range(1, days + 1)]
 
     return pd.DataFrame({'Date': future_dates, 'Predicted Price': predicted_prices})
