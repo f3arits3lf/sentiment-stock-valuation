@@ -123,13 +123,14 @@ class StockPriceDataset(Dataset):
 class SimpleTransformer(nn.Module):
     def __init__(self, input_dim, nhead, hidden_dim, num_layers):
         super(SimpleTransformer, self).__init__()
+        self.input_dim = input_dim
         encoder_layers = nn.TransformerEncoderLayer(d_model=input_dim, nhead=nhead, dim_feedforward=hidden_dim)
         self.transformer_encoder = nn.TransformerEncoder(encoder_layers, num_layers=num_layers)
-        self.fc = nn.Linear(input_dim * seq_length, 1)  # Fully connected layer for output
+        self.fc = nn.Linear(input_dim * 10, 1)  # Fully connected layer for output
 
     def forward(self, x):
         x = self.transformer_encoder(x)
-        x = x.view(x.size(1), -1)  # Flatten for fully connected layer
+        x = x.view(1, -1)  # Flatten for fully connected layer
         return self.fc(x)
 
 # Function to predict future prices using Transformer model
@@ -181,7 +182,8 @@ def predict_future_prices_transformer(ticker, days=30):
         for _ in range(days):
             y_pred = model(X_input)
             predicted_prices.append(y_pred.item())
-            X_input = torch.cat((X_input[:, 1:, :], y_pred.unsqueeze(0).unsqueeze(0)), dim=1)
+            y_pred_expanded = y_pred.unsqueeze(0).unsqueeze(0).repeat(1, input_dim)  # Repeat to match input dimension
+            X_input = torch.cat((X_input[:, 1:, :], y_pred_expanded.unsqueeze(0)), dim=1)
 
     predicted_prices = scaler.inverse_transform(np.array(predicted_prices).reshape(-1, input_dim))[:, 0]
     future_dates = [hist.index.max() + datetime.timedelta(days=i) for i in range(1, days + 1)]
