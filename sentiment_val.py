@@ -14,10 +14,14 @@ def get_stock_data(ticker):
 def get_financial_data(ticker):
     stock = yf.Ticker(ticker)
     try:
-        operating_cash_flow = stock.cashflow.loc['Total Cash From Operating Activities'][0]
-        capital_expenditure = stock.cashflow.loc['Capital Expenditures'][0]
-        free_cash_flow = operating_cash_flow - abs(capital_expenditure)
-        return free_cash_flow
+        if 'Total Cash From Operating Activities' in stock.cashflow.index and 'Capital Expenditures' in stock.cashflow.index:
+            operating_cash_flow = stock.cashflow.loc['Total Cash From Operating Activities'][0]
+            capital_expenditure = stock.cashflow.loc['Capital Expenditures'][0]
+            free_cash_flow = operating_cash_flow - abs(capital_expenditure)
+            return free_cash_flow
+        else:
+            print("Required financial data is missing in the cashflow statement.")
+            return None
     except Exception as e:
         print(f"Error retrieving financial data: {e}")
         return None
