@@ -11,20 +11,18 @@ def get_stock_data(ticker):
     return stock.history(period='1y')  # Historical data for 1 year
 
 # Function to get financial statements for calculating FCF
-def get_financial_data(ticker):
+def get_financial_data(ticker, user_input=False, user_operating_cash_flow=None, user_capital_expenditure=None):
     stock = yf.Ticker(ticker)
     try:
-        if 'Total Cash From Operating Activities' in stock.cashflow.index:
-            operating_cash_flow = stock.cashflow.loc['Total Cash From Operating Activities'][0]
+        if user_input:
+            operating_cash_flow = user_operating_cash_flow
+            capital_expenditure = user_capital_expenditure
         else:
-            print("Operating cash flow data is missing. Using an estimated default value.")
-            operating_cash_flow = 2000000000  # More conservative default value for operating cash flow
-
-        if 'Capital Expenditures' in stock.cashflow.index:
-            capital_expenditure = stock.cashflow.loc['Capital Expenditures'][0]
-        else:
-            print("Capital expenditures data is missing. Using an estimated default value.")
-            capital_expenditure = 500000000  # More conservative default value for capital expenditures
+            if 'Total Cash From Operating Activities' in stock.cashflow.index and 'Capital Expenditures' in stock.cashflow.index:
+                operating_cash_flow = stock.cashflow.loc['Total Cash From Operating Activities'][0]
+                capital_expenditure = stock.cashflow.loc['Capital Expenditures'][0]
+            else:
+                return None  # Return None if required financial data is missing
 
         free_cash_flow = operating_cash_flow - abs(capital_expenditure)
         return free_cash_flow
@@ -87,6 +85,15 @@ def main():
     # Input: Stock ticker symbol
     ticker = st.text_input("Enter Stock Ticker Symbol", "AAPL")
     if ticker:
+        # Option to enter financial data manually
+        user_input = st.checkbox("Enter Operating Cash Flow and Capital Expenditures manually?")
+        if user_input:
+            user_operating_cash_flow = st.number_input("Enter Operating Cash Flow (in dollars):", min_value=0)
+            user_capital_expenditure = st.number_input("Enter Capital Expenditures (in dollars):", min_value=0)
+        else:
+            user_operating_cash_flow = None
+            user_capital_expenditure = None
+
         # Step 1: Get Stock Data
         st.header("Stock Data")
         stock_data = get_stock_data(ticker)
@@ -110,13 +117,13 @@ def main():
 
         # Step 4: Perform Valuation
         st.header("Stock Valuation")
-        free_cash_flow = get_financial_data(ticker)
+        free_cash_flow = get_financial_data(ticker, user_input, user_operating_cash_flow, user_capital_expenditure)
         if free_cash_flow is not None:
             discount_rate = 0.1  # Example discount rate
             valuation = discounted_cash_flow(free_cash_flow, discount_rate, average_sentiment)
             st.write(f"Valuation (Adjusted with Sentiment): ${valuation:.2f}")
         else:
-            st.write("Unable to retrieve sufficient financial data for valuation.")
+            st.write("Unable to retrieve sufficient financial data for valuation. Please enter the data manually if available.")
 
 if __name__ == "__main__":
     main()
