@@ -132,7 +132,7 @@ class SimpleTransformer(nn.Module):
 
     def forward(self, x):
         x = self.transformer_encoder(x)
-        x = x.mean(dim=1)  # Average over the sequence length
+        x = x.mean(dim=0)  # Average over the sequence length
         return self.fc(x)
 
 # Function to predict future prices using Transformer model
@@ -194,7 +194,7 @@ def predict_future_prices_transformer(ticker, days=30):
             y_pred_expanded = y_pred.repeat(input_dim).unsqueeze(0)  # Repeat to match input dimension
             X_input = torch.cat((X_input[:, 1:, :], y_pred_expanded.unsqueeze(1)), dim=1)
 
-    predicted_prices = scaler.inverse_transform(np.array(predicted_prices).reshape(-1, features.shape[1]))[:, 0]
+    predicted_prices = scaler.inverse_transform(np.array(predicted_prices).reshape(-1, input_dim))[:, 0]
     future_dates = [hist.index.max() + datetime.timedelta(days=i) for i in range(1, days + 1)]
 
     return pd.DataFrame({'Date': future_dates, 'Predicted Price': predicted_prices})

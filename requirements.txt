@@ -1,13 +1,13 @@
 streamlit
 yfinance
 textblob
+beautifulsoup4
 requests
 pandas
-beautifulsoup4
 numpy
 scikit-learn
 statsmodels
-tensorflow
 matplotlib
 seaborn
+tensorflow
 torch
