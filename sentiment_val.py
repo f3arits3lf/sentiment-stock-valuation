@@ -4,6 +4,9 @@ from textblob import TextBlob
 import requests
 import pandas as pd
 from bs4 import BeautifulSoup
+import numpy as np
+from sklearn.linear_model import LinearRegression
+import datetime
 
 # Function to get stock data from Yahoo Finance
 def get_stock_data(ticker):
@@ -89,72 +92,100 @@ def pe_valuation(pe_ratio, earnings_per_share):
         return pe_ratio * earnings_per_share
     return None
 
+# Function to predict future prices using linear regression
+def predict_future_prices(ticker):
+    stock = yf.Ticker(ticker)
+    hist = stock.history(period="1y")
+    hist.reset_index(inplace=True)
+    hist['Days'] = (hist['Date'] - hist['Date'].min()).dt.days
+
+    X = hist[['Days']]
+    y = hist['Close']
+
+    model = LinearRegression()
+    model.fit(X, y)
+
+    future_days = np.array([X['Days'].max() + i for i in range(1, 31)]).reshape(-1, 1)
+    future_prices = model.predict(future_days)
+
+    future_dates = [hist['Date'].max() + datetime.timedelta(days=i) for i in range(1, 31)]
+    return pd.DataFrame({'Date': future_dates, 'Predicted Price': future_prices})
+
 # Streamlit app
 def main():
-    st.title("Sentiment-Driven Stock Valuation Tool")
+    st.sidebar.title("Stock Analysis Options")
+    analysis_option = st.sidebar.selectbox("Choose Analysis Type", ["Valuation", "Price Prediction"])
+
+    st.title("Sentiment-Driven Stock Analysis Tool")
 
     # Input: Stock ticker symbol
     ticker = st.text_input("Enter Stock Ticker Symbol", "AAPL")
     if ticker:
-        # Option to enter financial data manually
-        user_input = st.checkbox("Enter Operating Cash Flow and Capital Expenditures manually?")
-        if user_input:
-            user_operating_cash_flow = st.number_input("Enter Operating Cash Flow (in dollars):", min_value=0)
-            user_capital_expenditure = st.number_input("Enter Capital Expenditures (in dollars):", min_value=0)
-        else:
-            user_operating_cash_flow = None
-            user_capital_expenditure = None
-
-        # Allow user to enter custom discount rate and growth rate or use market-based rates
-        financial_metrics = get_additional_financial_metrics(ticker)
-        discount_rate = st.number_input("Enter Discount Rate (as a decimal, e.g., 0.1 for 10%) or use market-based rate (WACC)", min_value=0.0, value=financial_metrics.get('WACC', 0.0815))
-        growth_rate = st.number_input("Enter Growth Rate (as a decimal, e.g., 0.03 for 3%) or use analyst estimates", min_value=0.0, value=0.05)
-
-        # Step 1: Get Stock Data
-        st.header("Stock Data")
-        stock_data = get_stock_data(ticker)
-        st.write(stock_data)
-
-        # Step 2: Get Sentiment Data
-        st.header("Sentiment Analysis")
-        news_articles = get_news_articles(ticker)
-        sentiment_scores = [analyze_sentiment(article) for article in news_articles]
-        if sentiment_scores:
-            average_sentiment = sum(sentiment_scores) / len(sentiment_scores)
-            st.write(f"Average Sentiment Score: {average_sentiment:.2f}")
-        else:
-            average_sentiment = 0
-            st.write("No news articles found for sentiment analysis.")
-
-        # Step 3: Get Additional Financial Metrics
-        st.header("Additional Financial Metrics")
-        st.write(financial_metrics)
-
-        # Allow user to enter missing financial metrics manually if unavailable
-        if financial_metrics['PE Ratio'] is None:
-            financial_metrics['PE Ratio'] = st.number_input("Enter P/E Ratio (if unavailable):", min_value=0.0)
-        if financial_metrics['EPS'] is None:
-            financial_metrics['EPS'] = st.number_input("Enter Earnings Per Share (EPS) (if unavailable):", min_value=0.0)
-
-        # Step 4: Perform Valuation
-        st.header("Stock Valuation")
-        valuation_method = st.selectbox("Select Valuation Method", ["DCF", "P/E", "Both"])
-
-        free_cash_flow = get_financial_data(ticker, user_input, user_operating_cash_flow, user_capital_expenditure)
-        if valuation_method in ["DCF", "Both"]:
-            if free_cash_flow is not None:
-                dcf_valuation = discounted_cash_flow(free_cash_flow, discount_rate, average_sentiment, growth_rate)
-                st.write(f"DCF Valuation (Adjusted with Sentiment and Growth Rate): ${dcf_valuation:.2f}")
+        if analysis_option == "Valuation":
+            # Option to enter financial data manually
+            user_input = st.checkbox("Enter Operating Cash Flow and Capital Expenditures manually?")
+            if user_input:
+                user_operating_cash_flow = st.number_input("Enter Operating Cash Flow (in dollars):", min_value=0)
+                user_capital_expenditure = st.number_input("Enter Capital Expenditures (in dollars):", min_value=0)
             else:
-                st.write("Unable to retrieve sufficient financial data for DCF valuation. Please enter the data manually if available.")
+                user_operating_cash_flow = None
+                user_capital_expenditure = None
 
-        if valuation_method in ["P/E", "Both"]:
-            st.header("P/E Valuation")
-            pe_valuation_value = pe_valuation(financial_metrics['PE Ratio'], financial_metrics['EPS'])
-            if pe_valuation_value is not None:
-                st.write(f"P/E Valuation: ${pe_valuation_value:.2f}")
+            # Allow user to enter custom discount rate and growth rate or use market-based rates
+            financial_metrics = get_additional_financial_metrics(ticker)
+            discount_rate = st.number_input("Enter Discount Rate (as a decimal, e.g., 0.1 for 10%) or use market-based rate (WACC)", min_value=0.0, value=financial_metrics.get('WACC', 0.0815))
+            growth_rate = st.number_input("Enter Growth Rate (as a decimal, e.g., 0.03 for 3%) or use analyst estimates", min_value=0.0, value=0.05)
+
+            # Step 1: Get Stock Data
+            st.header("Stock Data")
+            stock_data = get_stock_data(ticker)
+            st.write(stock_data)
+
+            # Step 2: Get Sentiment Data
+            st.header("Sentiment Analysis")
+            news_articles = get_news_articles(ticker)
+            sentiment_scores = [analyze_sentiment(article) for article in news_articles]
+            if sentiment_scores:
+                average_sentiment = sum(sentiment_scores) / len(sentiment_scores)
+                st.write(f"Average Sentiment Score: {average_sentiment:.2f}")
             else:
-                st.write("Unable to calculate P/E valuation due to missing P/E ratio or EPS data.")
+                average_sentiment = 0
+                st.write("No news articles found for sentiment analysis.")
+
+            # Step 3: Get Additional Financial Metrics
+            st.header("Additional Financial Metrics")
+            st.write(financial_metrics)
+
+            # Allow user to enter missing financial metrics manually if unavailable
+            if financial_metrics['PE Ratio'] is None:
+                financial_metrics['PE Ratio'] = st.number_input("Enter P/E Ratio (if unavailable):", min_value=0.0)
+            if financial_metrics['EPS'] is None:
+                financial_metrics['EPS'] = st.number_input("Enter Earnings Per Share (EPS) (if unavailable):", min_value=0.0)
+
+            # Step 4: Perform Valuation
+            st.header("Stock Valuation")
+            valuation_method = st.selectbox("Select Valuation Method", ["DCF", "P/E", "Both"])
+
+            free_cash_flow = get_financial_data(ticker, user_input, user_operating_cash_flow, user_capital_expenditure)
+            if valuation_method in ["DCF", "Both"]:
+                if free_cash_flow is not None:
+                    dcf_valuation = discounted_cash_flow(free_cash_flow, discount_rate, average_sentiment, growth_rate)
+                    st.write(f"DCF Valuation (Adjusted with Sentiment and Growth Rate): ${dcf_valuation:.2f}")
+                else:
+                    st.write("Unable to retrieve sufficient financial data for DCF valuation. Please enter the data manually if available.")
+
+            if valuation_method in ["P/E", "Both"]:
+                st.header("P/E Valuation")
+                pe_valuation_value = pe_valuation(financial_metrics['PE Ratio'], financial_metrics['EPS'])
+                if pe_valuation_value is not None:
+                    st.write(f"P/E Valuation: ${pe_valuation_value:.2f}")
+                else:
+                    st.write("Unable to calculate P/E valuation due to missing P/E ratio or EPS data.")
+
+        elif analysis_option == "Price Prediction":
+            st.header("Future Price Prediction")
+            future_prices_df = predict_future_prices(ticker)
+            st.write(future_prices_df)
 
 if __name__ == "__main__":
     main()

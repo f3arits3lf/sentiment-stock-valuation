@@ -2,5 +2,7 @@ streamlit
 yfinance
 textblob
 requests
-beautifulsoup4
 pandas
+beautifulsoup4
+numpy
+scikit-learn
