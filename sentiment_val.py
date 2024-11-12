@@ -18,8 +18,7 @@ from tensorflow.keras.layers import LSTM, Dense
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.preprocessing import StandardScaler
 import torch
-from torch import nn
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import Dataset
 
 # Function to get stock data from Yahoo Finance
 def get_stock_data(ticker):
@@ -105,99 +104,52 @@ def pe_valuation(pe_ratio, earnings_per_share):
         return pe_ratio * earnings_per_share
     return None
 
-# Transformer Model for Price Prediction
-class StockPriceDataset(Dataset):
-    def __init__(self, data, seq_length=10):
-        self.data = data
-        self.seq_length = seq_length
-
-    def __len__(self):
-        return len(self.data) - self.seq_length
-
-    def __getitem__(self, idx):
-        return (
-            torch.tensor(self.data[idx:idx + self.seq_length], dtype=torch.float32),
-            torch.tensor(self.data[idx + self.seq_length, 0], dtype=torch.float32)  # Predicting only the 'Close' price
-        )
-
-class SimpleTransformer(nn.Module):
-    def __init__(self, input_dim, nhead, hidden_dim, num_layers):
-        super(SimpleTransformer, self).__init__()
-        # Ensure input_dim is divisible by nhead
-        assert input_dim % nhead == 0, "input_dim must be divisible by nhead"
-        self.input_dim = input_dim
-        encoder_layers = nn.TransformerEncoderLayer(d_model=input_dim, nhead=nhead, dim_feedforward=hidden_dim)
-        self.transformer_encoder = nn.TransformerEncoder(encoder_layers, num_layers=num_layers)
-        self.fc = nn.Linear(input_dim, 1)  # Fully connected layer for output
-
-    def forward(self, x):
-        x = self.transformer_encoder(x)
-        x = x.mean(dim=0)  # Average over the sequence length
-        return self.fc(x)
-
-# Function to predict future prices using Transformer model
-def predict_future_prices_transformer(ticker, days=30):
+# LSTM Model for Price Prediction
+def predict_future_prices_lstm(ticker, days=30):
     stock = yf.Ticker(ticker)
     hist = stock.history(period="1y")
     hist['Close'] = hist['Close'].astype(float)
 
-    # Adding additional features: Volume and Moving Average
-    hist['Volume'] = hist['Volume'].astype(float)
-    hist['MA10'] = hist['Close'].rolling(window=10).mean()
-    hist.dropna(inplace=True)
+    # Preparing data for LSTM
+    data = hist[['Close']].values
+    scaler = MinMaxScaler(feature_range=(0, 1))
+    scaled_data = scaler.fit_transform(data)
 
-    features = hist[['Close', 'Volume', 'MA10']].values
-    input_dim = features.shape[1]
-    nhead = 2
-    # Adjust input_dim to be divisible by nhead if needed
-    if input_dim % nhead != 0:
-        padded_features = np.zeros((features.shape[0], input_dim + (nhead - input_dim % nhead)))
-        padded_features[:, :features.shape[1]] = features
-        features = padded_features
-        input_dim = features.shape[1]
+    # Creating training dataset
+    seq_length = 60
+    X, y = [], []
+    for i in range(seq_length, len(scaled_data)):
+        X.append(scaled_data[i-seq_length:i, 0])
+        y.append(scaled_data[i, 0])
 
-    scaler = StandardScaler()
-    features_scaled = scaler.fit_transform(features)
+    X, y = np.array(X), np.array(y)
+    X = np.reshape(X, (X.shape[0], X.shape[1], 1))
 
-    # Prepare Dataset
-    seq_length = 10
-    dataset = StockPriceDataset(features_scaled, seq_length)
-    dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
+    # Building the LSTM model
+    model = Sequential()
+    model.add(LSTM(units=50, return_sequences=True, input_shape=(X.shape[1], 1)))
+    model.add(LSTM(units=50, return_sequences=False))
+    model.add(Dense(units=25))
+    model.add(Dense(units=1))
 
-    # Transformer model
-    hidden_dim = 128
-    num_layers = 2
-    model = SimpleTransformer(input_dim, nhead, hidden_dim, num_layers)
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-    criterion = nn.MSELoss()
+    model.compile(optimizer='adam', loss='mean_squared_error')
 
-    # Training the Transformer model
-    epochs = 10
-    model.train()
-    for epoch in range(epochs):
-        for X, y in dataloader:
-            optimizer.zero_grad()
-            X = X.permute(1, 0, 2)  # Correct input dimensions for Transformer (seq_length, batch_size, input_dim)
-            y_pred = model(X)
-            loss = criterion(y_pred, y.unsqueeze(1))  # Match dimensions for MSELoss
-            loss.backward()
-            optimizer.step()
+    # Training the model
+    model.fit(X, y, batch_size=1, epochs=1)
 
     # Predicting future prices
-    model.eval()
-    with torch.no_grad():
-        X_input = torch.tensor(features_scaled[-seq_length:], dtype=torch.float32).unsqueeze(1)  # Correct input shape
-        predicted_prices = []
-        for _ in range(days):
-            y_pred = model(X_input)
-            predicted_prices.append(y_pred.item())
-            y_pred_expanded = y_pred.repeat(input_dim).unsqueeze(0).unsqueeze(2)  # Correct dimension for concatenation
-            X_input = torch.cat((X_input[:, 1:, :], y_pred_expanded), dim=1)
+    predictions = []
+    last_sequence = scaled_data[-seq_length:]
+    for _ in range(days):
+        X_pred = np.reshape(last_sequence, (1, seq_length, 1))
+        predicted_price = model.predict(X_pred)
+        predictions.append(predicted_price[0, 0])
+        last_sequence = np.append(last_sequence[1:], predicted_price, axis=0)
 
-    predicted_prices = scaler.inverse_transform(np.array(predicted_prices).reshape(-1, input_dim))[:, 0]
+    predicted_prices = scaler.inverse_transform(np.array(predictions).reshape(-1, 1))
     future_dates = [hist.index.max() + datetime.timedelta(days=i) for i in range(1, days + 1)]
 
-    return pd.DataFrame({'Date': future_dates, 'Predicted Price': predicted_prices})
+    return pd.DataFrame({'Date': future_dates, 'Predicted Price': predicted_prices.flatten()})
 
 # Function to plot predicted prices
 def plot_predictions(predictions_df):
@@ -284,10 +236,10 @@ def main():
         elif analysis_option == "Price Prediction":
             st.header("Future Price Prediction")
             days = st.number_input("Enter number of days to predict (e.g., 30):", min_value=1, value=30)
-            prediction_method = st.selectbox("Select Prediction Method", ["Transformer"])
+            prediction_method = st.selectbox("Select Prediction Method", ["LSTM"])
 
-            if prediction_method == "Transformer":
-                future_prices_df = predict_future_prices_transformer(ticker, days)
+            if prediction_method == "LSTM":
+                future_prices_df = predict_future_prices_lstm(ticker, days)
 
             st.write(future_prices_df)
             plot_predictions(future_prices_df)
