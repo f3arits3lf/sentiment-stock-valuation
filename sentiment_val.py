@@ -38,11 +38,13 @@ def get_additional_financial_metrics(ticker):
         debt_to_equity = stock.info.get('debtToEquity', None)
         roe = stock.info.get('returnOnEquity', None)
         beta = stock.info.get('beta', None)
+        eps = stock.info.get('trailingEps', None)
         return {
             'PE Ratio': pe_ratio,
             'Debt to Equity': debt_to_equity,
             'ROE': roe,
-            'Beta': beta
+            'Beta': beta,
+            'EPS': eps
         }
     except Exception as e:
         print(f"Error retrieving additional financial metrics: {e}")
@@ -100,6 +102,10 @@ def main():
             user_operating_cash_flow = None
             user_capital_expenditure = None
 
+        # Allow user to enter custom discount rate and growth rate
+        discount_rate = st.number_input("Enter Discount Rate (as a decimal, e.g., 0.1 for 10%):", min_value=0.0, value=0.1)
+        growth_rate = st.number_input("Enter Growth Rate (as a decimal, e.g., 0.03 for 3%):", min_value=0.0, value=0.03)
+
         # Step 1: Get Stock Data
         st.header("Stock Data")
         stock_data = get_stock_data(ticker)
@@ -121,27 +127,31 @@ def main():
         financial_metrics = get_additional_financial_metrics(ticker)
         st.write(financial_metrics)
 
+        # Allow user to enter missing financial metrics manually if unavailable
+        if financial_metrics['PE Ratio'] is None:
+            financial_metrics['PE Ratio'] = st.number_input("Enter P/E Ratio (if unavailable):", min_value=0.0)
+        if financial_metrics['EPS'] is None:
+            financial_metrics['EPS'] = st.number_input("Enter Earnings Per Share (EPS) (if unavailable):", min_value=0.0)
+
         # Step 4: Perform Valuation
         st.header("Stock Valuation")
-        free_cash_flow = get_financial_data(ticker, user_input, user_operating_cash_flow, user_capital_expenditure)
-        if free_cash_flow is not None:
-            discount_rate = 0.1  # Example discount rate
-            growth_rate = 0.03  # Example growth rate
-            dcf_valuation = discounted_cash_flow(free_cash_flow, discount_rate, average_sentiment, growth_rate)
-            st.write(f"DCF Valuation (Adjusted with Sentiment and Growth Rate): ${dcf_valuation:.2f}")
-        else:
-            st.write("Unable to retrieve sufficient financial data for valuation. Please enter the data manually if available.")
+        valuation_method = st.selectbox("Select Valuation Method", ["DCF", "P/E", "Both"])
 
-        # Step 5: Perform P/E Valuation
-        st.header("P/E Valuation")
-        if financial_metrics['PE Ratio'] is not None and 'trailingEps' in stock_data.columns:
-            pe_valuation_value = pe_valuation(financial_metrics['PE Ratio'], stock_data['trailingEps'][0])
+        free_cash_flow = get_financial_data(ticker, user_input, user_operating_cash_flow, user_capital_expenditure)
+        if valuation_method in ["DCF", "Both"]:
+            if free_cash_flow is not None:
+                dcf_valuation = discounted_cash_flow(free_cash_flow, discount_rate, average_sentiment, growth_rate)
+                st.write(f"DCF Valuation (Adjusted with Sentiment and Growth Rate): ${dcf_valuation:.2f}")
+            else:
+                st.write("Unable to retrieve sufficient financial data for DCF valuation. Please enter the data manually if available.")
+
+        if valuation_method in ["P/E", "Both"]:
+            st.header("P/E Valuation")
+            pe_valuation_value = pe_valuation(financial_metrics['PE Ratio'], financial_metrics['EPS'])
             if pe_valuation_value is not None:
                 st.write(f"P/E Valuation: ${pe_valuation_value:.2f}")
             else:
-                st.write("Unable to calculate P/E valuation due to missing earnings per share data.")
-        else:
-            st.write("P/E ratio or earnings per share data is unavailable for P/E valuation.")
+                st.write("Unable to calculate P/E valuation due to missing P/E ratio or EPS data.")
 
 if __name__ == "__main__":
     main()
