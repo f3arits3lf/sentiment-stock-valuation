@@ -12,10 +12,10 @@ from statsmodels.tsa.arima.model import ARIMA
 import datetime
 import matplotlib.pyplot as plt
 import seaborn as sns
-import pmdarima as pm
 import tensorflow as tf
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense
+from sklearn.preprocessing import MinMaxScaler
 
 # Function to get stock data from Yahoo Finance
 def get_stock_data(ticker):
@@ -108,15 +108,16 @@ def predict_future_prices_hybrid(ticker, days=30):
     hist['Close'] = hist['Close'].astype(float)
 
     # Step 1: ARIMA for Trend Prediction
-    arima_model = pm.auto_arima(hist['Close'], seasonal=False)
-    arima_fit = arima_model.fit(hist['Close'])
-    arima_forecast = arima_fit.predict(n_periods=days)
+    arima_order = (5, 1, 0)  # Manually specify ARIMA order
+    arima_model = ARIMA(hist['Close'], order=arima_order)
+    arima_fit = arima_model.fit()
+    arima_forecast = arima_fit.forecast(steps=days)
 
     # Step 2: Calculate Residuals
-    residuals = hist['Close'] - arima_fit.predict_in_sample()
+    residuals = hist['Close'] - arima_fit.fittedvalues
 
     # Step 3: LSTM for Residual Prediction
-    residuals = residuals.values.reshape(-1, 1)
+    residuals = residuals.dropna().values.reshape(-1, 1)
     scaler = MinMaxScaler(feature_range=(0, 1))
     residuals_scaled = scaler.fit_transform(residuals)
 
