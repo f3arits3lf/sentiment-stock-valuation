@@ -127,15 +127,15 @@ def predict_future_prices_lstm(ticker, days=30):
 
     # Building the LSTM model
     model = Sequential()
-    model.add(LSTM(units=50, return_sequences=True, input_shape=(X.shape[1], 1)))
-    model.add(LSTM(units=50, return_sequences=False))
-    model.add(Dense(units=25))
+    model.add(LSTM(units=25, return_sequences=True, input_shape=(X.shape[1], 1)))  # Reduced units to lower complexity
+    model.add(LSTM(units=25, return_sequences=False))
+    model.add(Dense(units=10))
     model.add(Dense(units=1))
 
     model.compile(optimizer='adam', loss='mean_squared_error')
 
     # Training the model
-    model.fit(X, y, batch_size=1, epochs=1)
+    model.fit(X, y, batch_size=10, epochs=1)  # Increased batch size and reduced epochs for faster training
 
     # Predicting future prices
     predictions = []
