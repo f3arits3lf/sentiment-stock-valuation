@@ -6,7 +6,12 @@ import pandas as pd
 from bs4 import BeautifulSoup
 import numpy as np
 from sklearn.linear_model import LinearRegression
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error
+from statsmodels.tsa.arima.model import ARIMA
 import datetime
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 # Function to get stock data from Yahoo Finance
 def get_stock_data(ticker):
@@ -92,24 +97,29 @@ def pe_valuation(pe_ratio, earnings_per_share):
         return pe_ratio * earnings_per_share
     return None
 
-# Function to predict future prices using linear regression
-def predict_future_prices(ticker):
+# Function to predict future prices using ARIMA
+def predict_future_prices_arima(ticker, days=30):
     stock = yf.Ticker(ticker)
     hist = stock.history(period="1y")
-    hist.reset_index(inplace=True)
-    hist['Days'] = (hist['Date'] - hist['Date'].min()).dt.days
+    hist['Close'] = hist['Close'].astype(float)
 
-    X = hist[['Days']]
-    y = hist['Close']
+    model = ARIMA(hist['Close'], order=(5, 1, 0))
+    model_fit = model.fit()
+    forecast = model_fit.forecast(steps=days)
 
-    model = LinearRegression()
-    model.fit(X, y)
+    future_dates = [hist.index.max() + datetime.timedelta(days=i) for i in range(1, days + 1)]
+    return pd.DataFrame({'Date': future_dates, 'Predicted Price': forecast})
 
-    future_days = np.array([X['Days'].max() + i for i in range(1, 31)]).reshape(-1, 1)
-    future_prices = model.predict(future_days)
-
-    future_dates = [hist['Date'].max() + datetime.timedelta(days=i) for i in range(1, 31)]
-    return pd.DataFrame({'Date': future_dates, 'Predicted Price': future_prices})
+# Function to plot predicted prices
+def plot_predictions(predictions_df):
+    plt.figure(figsize=(10, 6))
+    sns.lineplot(x='Date', y='Predicted Price', data=predictions_df, marker='o')
+    plt.title('Future Price Prediction')
+    plt.xlabel('Date')
+    plt.ylabel('Predicted Price')
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    st.pyplot(plt)
 
 # Streamlit app
 def main():
@@ -184,8 +194,10 @@ def main():
 
         elif analysis_option == "Price Prediction":
             st.header("Future Price Prediction")
-            future_prices_df = predict_future_prices(ticker)
+            days = st.number_input("Enter number of days to predict (e.g., 30):", min_value=1, value=30)
+            future_prices_df = predict_future_prices_arima(ticker, days)
             st.write(future_prices_df)
+            plot_predictions(future_prices_df)
 
 if __name__ == "__main__":
     main()

@@ -6,3 +6,6 @@ pandas
 beautifulsoup4
 numpy
 scikit-learn
+statsmodels
+matplotlib
+seaborn
