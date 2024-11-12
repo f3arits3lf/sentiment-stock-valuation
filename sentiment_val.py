@@ -16,6 +16,10 @@ import tensorflow as tf
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense
 from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import StandardScaler
+import torch
+from torch import nn
+from torch.utils.data import DataLoader, Dataset
 
 # Function to get stock data from Yahoo Finance
 def get_stock_data(ticker):
@@ -101,62 +105,86 @@ def pe_valuation(pe_ratio, earnings_per_share):
         return pe_ratio * earnings_per_share
     return None
 
-# Function to predict future prices using hybrid ARIMA-LSTM model
-def predict_future_prices_hybrid(ticker, days=30):
+# Transformer Model for Price Prediction
+class StockPriceDataset(Dataset):
+    def __init__(self, data, seq_length=10):
+        self.data = data
+        self.seq_length = seq_length
+
+    def __len__(self):
+        return len(self.data) - self.seq_length
+
+    def __getitem__(self, idx):
+        return (
+            torch.tensor(self.data[idx:idx + self.seq_length], dtype=torch.float32),
+            torch.tensor(self.data[idx + self.seq_length], dtype=torch.float32)
+        )
+
+class TransformerModel(nn.Module):
+    def __init__(self, input_dim, nhead, hidden_dim, num_layers):
+        super(TransformerModel, self).__init__()
+        self.model = nn.Transformer(input_dim, nhead, num_layers, hidden_dim)
+        self.fc = nn.Linear(input_dim, 1)
+
+    def forward(self, x):
+        x = self.model(x)
+        return self.fc(x[-1])
+
+# Function to predict future prices using Transformer model
+def predict_future_prices_transformer(ticker, days=30):
     stock = yf.Ticker(ticker)
     hist = stock.history(period="1y")
     hist['Close'] = hist['Close'].astype(float)
 
-    # Step 1: ARIMA for Trend Prediction
-    arima_order = (5, 1, 0)  # Manually specify ARIMA order
-    arima_model = ARIMA(hist['Close'], order=arima_order)
-    arima_fit = arima_model.fit()
-    arima_forecast = arima_fit.forecast(steps=days)
+    # Adding additional features: Volume and Moving Average
+    hist['Volume'] = hist['Volume'].astype(float)
+    hist['MA10'] = hist['Close'].rolling(window=10).mean()
+    hist.dropna(inplace=True)
 
-    # Step 2: Calculate Residuals
-    residuals = hist['Close'] - arima_fit.fittedvalues
+    features = hist[['Close', 'Volume', 'MA10']].values
+    scaler = StandardScaler()
+    features_scaled = scaler.fit_transform(features)
 
-    # Step 3: LSTM for Residual Prediction
-    residuals = residuals.dropna().values.reshape(-1, 1)
-    scaler = MinMaxScaler(feature_range=(0, 1))
-    residuals_scaled = scaler.fit_transform(residuals)
+    # Prepare Dataset
+    seq_length = 10
+    dataset = StockPriceDataset(features_scaled, seq_length)
+    dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
 
-    # Prepare LSTM input
-    time_step = 10
-    def create_dataset(dataset, time_step=1):
-        X, y = [], []
-        for i in range(len(dataset) - time_step - 1):
-            a = dataset[i:(i + time_step), 0]
-            X.append(a)
-            y.append(dataset[i + time_step, 0])
-        return np.array(X), np.array(y)
+    # Transformer model
+    input_dim = features.shape[1]
+    nhead = 2
+    hidden_dim = 128
+    num_layers = 2
+    model = TransformerModel(input_dim, nhead, hidden_dim, num_layers)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    criterion = nn.MSELoss()
 
-    X, y = create_dataset(residuals_scaled, time_step)
-    X = X.reshape(X.shape[0], X.shape[1], 1)
+    # Training the Transformer model
+    epochs = 10
+    model.train()
+    for epoch in range(epochs):
+        for X, y in dataloader:
+            optimizer.zero_grad()
+            X = X.squeeze(0).permute(1, 0)  # Transformer expects input in (seq_length, batch_size, features)
+            y_pred = model(X)
+            loss = criterion(y_pred, y)
+            loss.backward()
+            optimizer.step()
 
-    # LSTM model
-    model = Sequential()
-    model.add(LSTM(50, return_sequences=True, input_shape=(time_step, 1)))
-    model.add(LSTM(50, return_sequences=False))
-    model.add(Dense(1))
-    model.compile(optimizer='adam', loss='mean_squared_error')
-    model.fit(X, y, epochs=10, batch_size=1, verbose=2)
+    # Predicting future prices
+    model.eval()
+    with torch.no_grad():
+        X_input = torch.tensor(features_scaled[-seq_length:], dtype=torch.float32).permute(1, 0)
+        predicted_prices = []
+        for _ in range(days):
+            y_pred = model(X_input)
+            predicted_prices.append(y_pred.item())
+            X_input = torch.cat((X_input[:, 1:], y_pred.unsqueeze(0)), dim=1)
 
-    # Predicting future residuals
-    X_input = residuals_scaled[-time_step:].reshape(1, time_step, 1)
-    predicted_residuals = []
-    for _ in range(days):
-        predicted_residual = model.predict(X_input)
-        predicted_residuals.append(predicted_residual[0][0])
-        X_input = np.append(X_input[:, 1:, :], predicted_residual.reshape(1, 1, 1), axis=1)
-
-    predicted_residuals = scaler.inverse_transform(np.array(predicted_residuals).reshape(-1, 1))
-
-    # Step 4: Combine ARIMA Trend and LSTM Residuals
+    predicted_prices = scaler.inverse_transform(np.array(predicted_prices).reshape(-1, input_dim))[:, 0]
     future_dates = [hist.index.max() + datetime.timedelta(days=i) for i in range(1, days + 1)]
-    combined_forecast = arima_forecast + predicted_residuals.flatten()
 
-    return pd.DataFrame({'Date': future_dates, 'Predicted Price': combined_forecast})
+    return pd.DataFrame({'Date': future_dates, 'Predicted Price': predicted_prices})
 
 # Function to plot predicted prices
 def plot_predictions(predictions_df):
@@ -243,10 +271,10 @@ def main():
         elif analysis_option == "Price Prediction":
             st.header("Future Price Prediction")
             days = st.number_input("Enter number of days to predict (e.g., 30):", min_value=1, value=30)
-            prediction_method = st.selectbox("Select Prediction Method", ["Hybrid ARIMA-LSTM"])
+            prediction_method = st.selectbox("Select Prediction Method", ["Transformer"])
 
-            if prediction_method == "Hybrid ARIMA-LSTM":
-                future_prices_df = predict_future_prices_hybrid(ticker, days)
+            if prediction_method == "Transformer":
+                future_prices_df = predict_future_prices_transformer(ticker, days)
 
             st.write(future_prices_df)
             plot_predictions(future_prices_df)

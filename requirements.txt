@@ -10,3 +10,4 @@ statsmodels
 tensorflow
 matplotlib
 seaborn
+torch
