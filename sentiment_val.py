@@ -117,18 +117,20 @@ class StockPriceDataset(Dataset):
     def __getitem__(self, idx):
         return (
             torch.tensor(self.data[idx:idx + self.seq_length], dtype=torch.float32),
-            torch.tensor(self.data[idx + self.seq_length], dtype=torch.float32)
+            torch.tensor(self.data[idx + self.seq_length, 0], dtype=torch.float32)  # Predicting only the 'Close' price
         )
 
-class TransformerModel(nn.Module):
+class SimpleTransformer(nn.Module):
     def __init__(self, input_dim, nhead, hidden_dim, num_layers):
-        super(TransformerModel, self).__init__()
-        self.model = nn.Transformer(input_dim, nhead, num_layers, hidden_dim)
-        self.fc = nn.Linear(input_dim, 1)
+        super(SimpleTransformer, self).__init__()
+        encoder_layers = nn.TransformerEncoderLayer(d_model=input_dim, nhead=nhead, dim_feedforward=hidden_dim)
+        self.transformer_encoder = nn.TransformerEncoder(encoder_layers, num_layers=num_layers)
+        self.fc = nn.Linear(input_dim * seq_length, 1)  # Fully connected layer for output
 
     def forward(self, x):
-        x = self.model(x)
-        return self.fc(x[-1])
+        x = self.transformer_encoder(x)
+        x = x.view(x.size(1), -1)  # Flatten for fully connected layer
+        return self.fc(x)
 
 # Function to predict future prices using Transformer model
 def predict_future_prices_transformer(ticker, days=30):
@@ -155,7 +157,7 @@ def predict_future_prices_transformer(ticker, days=30):
     nhead = 2
     hidden_dim = 128
     num_layers = 2
-    model = TransformerModel(input_dim, nhead, hidden_dim, num_layers)
+    model = SimpleTransformer(input_dim, nhead, hidden_dim, num_layers)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     criterion = nn.MSELoss()
 
@@ -174,12 +176,12 @@ def predict_future_prices_transformer(ticker, days=30):
     # Predicting future prices
     model.eval()
     with torch.no_grad():
-        X_input = torch.tensor(features_scaled[-seq_length:], dtype=torch.float32).permute(1, 0)
+        X_input = torch.tensor(features_scaled[-seq_length:], dtype=torch.float32).permute(1, 0).unsqueeze(1)
         predicted_prices = []
         for _ in range(days):
             y_pred = model(X_input)
             predicted_prices.append(y_pred.item())
-            X_input = torch.cat((X_input[:, 1:], y_pred.unsqueeze(0)), dim=1)
+            X_input = torch.cat((X_input[:, 1:, :], y_pred.unsqueeze(0).unsqueeze(0)), dim=1)
 
     predicted_prices = scaler.inverse_transform(np.array(predicted_prices).reshape(-1, input_dim))[:, 0]
     future_dates = [hist.index.max() + datetime.timedelta(days=i) for i in range(1, days + 1)]
