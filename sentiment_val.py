@@ -148,7 +148,7 @@ def predict_future_prices_hybrid(ticker, days=30):
     for _ in range(days):
         predicted_residual = model.predict(X_input)
         predicted_residuals.append(predicted_residual[0][0])
-        X_input = np.append(X_input[:, 1:, :], [[predicted_residual]], axis=1)
+        X_input = np.append(X_input[:, 1:, :], predicted_residual.reshape(1, 1, 1), axis=1)
 
     predicted_residuals = scaler.inverse_transform(np.array(predicted_residuals).reshape(-1, 1))
 
