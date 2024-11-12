@@ -147,6 +147,15 @@ def predict_future_prices_transformer(ticker, days=30):
     hist.dropna(inplace=True)
 
     features = hist[['Close', 'Volume', 'MA10']].values
+    input_dim = features.shape[1]
+    nhead = 2
+    # Adjust input_dim to be divisible by nhead if needed
+    if input_dim % nhead != 0:
+        padded_features = np.zeros((features.shape[0], input_dim + (nhead - input_dim % nhead)))
+        padded_features[:, :features.shape[1]] = features
+        features = padded_features
+        input_dim = features.shape[1]
+
     scaler = StandardScaler()
     features_scaled = scaler.fit_transform(features)
 
@@ -156,14 +165,8 @@ def predict_future_prices_transformer(ticker, days=30):
     dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
 
     # Transformer model
-    input_dim = features.shape[1]
-    nhead = 2
     hidden_dim = 128
     num_layers = 2
-    # Ensure input_dim is divisible by nhead
-    if input_dim % nhead != 0:
-        input_dim = input_dim + (nhead - (input_dim % nhead))  # Adjust input_dim to be divisible by nhead
-
     model = SimpleTransformer(input_dim, nhead, hidden_dim, num_layers)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     criterion = nn.MSELoss()
@@ -183,12 +186,12 @@ def predict_future_prices_transformer(ticker, days=30):
     # Predicting future prices
     model.eval()
     with torch.no_grad():
-        X_input = torch.tensor(features_scaled[-seq_length:], dtype=torch.float32).permute(1, 0).unsqueeze(1)
+        X_input = torch.tensor(features_scaled[-seq_length:], dtype=torch.float32).unsqueeze(1)  # Correct input shape
         predicted_prices = []
         for _ in range(days):
             y_pred = model(X_input)
             predicted_prices.append(y_pred.item())
-            y_pred_expanded = y_pred.unsqueeze(0).repeat(input_dim).unsqueeze(0)  # Repeat to match input dimension
+            y_pred_expanded = y_pred.repeat(input_dim).unsqueeze(0)  # Repeat to match input dimension
             X_input = torch.cat((X_input[:, 1:, :], y_pred_expanded.unsqueeze(1)), dim=1)
 
     predicted_prices = scaler.inverse_transform(np.array(predicted_prices).reshape(-1, features.shape[1]))[:, 0]
