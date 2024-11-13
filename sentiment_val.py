@@ -22,13 +22,17 @@ from torch.utils.data import Dataset
 
 # Function to get stock data from Yahoo Finance
 def get_stock_data(ticker):
-    stock = yf.Ticker(ticker)
-    return stock.history(period='1y')  # Historical data for 1 year
+    try:
+        stock = yf.Ticker(ticker)
+        return stock.history(period='1y')  # Historical data for 1 year
+    except Exception as e:
+        st.error(f"Error retrieving stock data for {ticker}: {e}")
+        return pd.DataFrame()
 
 # Function to get financial statements for calculating FCF
 def get_financial_data(ticker, user_input=False, user_operating_cash_flow=None, user_capital_expenditure=None):
-    stock = yf.Ticker(ticker)
     try:
+        stock = yf.Ticker(ticker)
         if user_input:
             operating_cash_flow = user_operating_cash_flow
             capital_expenditure = user_capital_expenditure
@@ -42,13 +46,13 @@ def get_financial_data(ticker, user_input=False, user_operating_cash_flow=None, 
         free_cash_flow = operating_cash_flow - abs(capital_expenditure)
         return free_cash_flow
     except Exception as e:
-        print(f"Error retrieving financial data: {e}")
+        st.error(f"Error retrieving financial data for {ticker}: {e}")
         return None
 
 # Function to get additional financial metrics
 def get_additional_financial_metrics(ticker):
-    stock = yf.Ticker(ticker)
     try:
+        stock = yf.Ticker(ticker)
         pe_ratio = stock.info.get('trailingPE', None)
         debt_to_equity = stock.info.get('debtToEquity', None)
         roe = stock.info.get('returnOnEquity', None)
@@ -64,7 +68,7 @@ def get_additional_financial_metrics(ticker):
             'WACC': wacc
         }
     except Exception as e:
-        print(f"Error retrieving additional financial metrics: {e}")
+        st.error(f"Error retrieving additional financial metrics for {ticker}: {e}")
         return {}
 
 # Function to get news articles using News API
@@ -79,88 +83,107 @@ def get_news_articles(ticker):
             news_articles = [article['description'] for article in articles if article['description']]
             return news_articles[:5]  # Limit to 5 articles
         else:
-            print(f"Error fetching news articles: {response.status_code}")
+            st.error(f"Error fetching news articles: {response.status_code}")
             return []
     except Exception as e:
-        print(f"Error retrieving news articles: {e}")
+        st.error(f"Error retrieving news articles for {ticker}: {e}")
         return []
 
 # Function to analyze sentiment from text
 def analyze_sentiment(text):
-    blob = TextBlob(text)
-    return blob.sentiment.polarity
+    try:
+        blob = TextBlob(text)
+        return blob.sentiment.polarity
+    except Exception as e:
+        st.error(f"Error analyzing sentiment: {e}")
+        return 0
 
 # Function to calculate discounted cash flow (DCF) with growth rate
 def discounted_cash_flow(free_cash_flow, discount_rate, sentiment_score, growth_rate=0.03, years=5):
-    sentiment_weight = 0.5  # Limit sentiment adjustment to reduce overreaction
-    adjusted_rate = discount_rate * (1 - sentiment_weight * sentiment_score)  # Adjust discount rate proportionally by sentiment
-    adjusted_rate = max(0.01, adjusted_rate)  # Prevent adjusted_rate from becoming negative or zero
-    total_value = sum(free_cash_flow * (1 + growth_rate)**i / (1 + adjusted_rate)**i for i in range(1, years + 1))
-    return total_value
+    try:
+        sentiment_weight = 0.5  # Limit sentiment adjustment to reduce overreaction
+        adjusted_rate = discount_rate * (1 - sentiment_weight * sentiment_score)  # Adjust discount rate proportionally by sentiment
+        adjusted_rate = max(0.01, adjusted_rate)  # Prevent adjusted_rate from becoming negative or zero
+        total_value = sum(free_cash_flow * (1 + growth_rate)**i / (1 + adjusted_rate)**i for i in range(1, years + 1))
+        return total_value
+    except Exception as e:
+        st.error(f"Error calculating DCF valuation: {e}")
+        return None
 
 # Function to perform valuation using P/E multiple
 def pe_valuation(pe_ratio, earnings_per_share):
-    if pe_ratio is not None and earnings_per_share is not None:
-        return pe_ratio * earnings_per_share
-    return None
+    try:
+        if pe_ratio is not None and earnings_per_share is not None:
+            return pe_ratio * earnings_per_share
+        return None
+    except Exception as e:
+        st.error(f"Error calculating P/E valuation: {e}")
+        return None
 
 # LSTM Model for Price Prediction
 def predict_future_prices_lstm(ticker, days=30):
-    stock = yf.Ticker(ticker)
-    hist = stock.history(period="1y")
-    hist['Close'] = hist['Close'].astype(float)
+    try:
+        stock = yf.Ticker(ticker)
+        hist = stock.history(period="1y")
+        hist['Close'] = hist['Close'].astype(float)
 
-    # Preparing data for LSTM
-    data = hist[['Close']].values
-    scaler = MinMaxScaler(feature_range=(0, 1))
-    scaled_data = scaler.fit_transform(data)
+        # Preparing data for LSTM
+        data = hist[['Close']].values
+        scaler = MinMaxScaler(feature_range=(0, 1))
+        scaled_data = scaler.fit_transform(data)
 
-    # Creating training dataset
-    seq_length = 60
-    X, y = [], []
-    for i in range(seq_length, len(scaled_data)):
-        X.append(scaled_data[i-seq_length:i, 0])
-        y.append(scaled_data[i, 0])
+        # Creating training dataset
+        seq_length = 60
+        X, y = [], []
+        for i in range(seq_length, len(scaled_data)):
+            X.append(scaled_data[i-seq_length:i, 0])
+            y.append(scaled_data[i, 0])
 
-    X, y = np.array(X), np.array(y)
-    X = np.reshape(X, (X.shape[0], X.shape[1], 1))
+        X, y = np.array(X), np.array(y)
+        X = np.reshape(X, (X.shape[0], X.shape[1], 1))
 
-    # Building the LSTM model
-    model = Sequential()
-    model.add(LSTM(units=25, return_sequences=True, input_shape=(X.shape[1], 1)))  # Reduced units to lower complexity
-    model.add(LSTM(units=25, return_sequences=False))
-    model.add(Dense(units=10))
-    model.add(Dense(units=1))
+        # Building the LSTM model
+        model = Sequential()
+        model.add(LSTM(units=25, return_sequences=True, input_shape=(X.shape[1], 1)))  # Reduced units to lower complexity
+        model.add(LSTM(units=25, return_sequences=False))
+        model.add(Dense(units=10))
+        model.add(Dense(units=1))
 
-    model.compile(optimizer='adam', loss='mean_squared_error')
+        model.compile(optimizer='adam', loss='mean_squared_error')
 
-    # Training the model
-    model.fit(X, y, batch_size=10, epochs=1)  # Increased batch size and reduced epochs for faster training
+        # Training the model
+        model.fit(X, y, batch_size=10, epochs=1)  # Increased batch size and reduced epochs for faster training
 
-    # Predicting future prices
-    predictions = []
-    last_sequence = scaled_data[-seq_length:]
-    for _ in range(days):
-        X_pred = np.reshape(last_sequence, (1, seq_length, 1))
-        predicted_price = model.predict(X_pred)
-        predictions.append(predicted_price[0, 0])
-        last_sequence = np.append(last_sequence[1:], predicted_price, axis=0)
+        # Predicting future prices
+        predictions = []
+        last_sequence = scaled_data[-seq_length:]
+        for _ in range(days):
+            X_pred = np.reshape(last_sequence, (1, seq_length, 1))
+            predicted_price = model.predict(X_pred)
+            predictions.append(predicted_price[0, 0])
+            last_sequence = np.append(last_sequence[1:], predicted_price, axis=0)
 
-    predicted_prices = scaler.inverse_transform(np.array(predictions).reshape(-1, 1))
-    future_dates = [hist.index.max() + datetime.timedelta(days=i) for i in range(1, days + 1)]
+        predicted_prices = scaler.inverse_transform(np.array(predictions).reshape(-1, 1))
+        future_dates = [hist.index.max() + datetime.timedelta(days=i) for i in range(1, days + 1)]
 
-    return pd.DataFrame({'Date': future_dates, 'Predicted Price': predicted_prices.flatten()})
+        return pd.DataFrame({'Date': future_dates, 'Predicted Price': predicted_prices.flatten()})
+    except Exception as e:
+        st.error(f"Error predicting future prices for {ticker}: {e}")
+        return pd.DataFrame()
 
 # Function to plot predicted prices
 def plot_predictions(predictions_df):
-    plt.figure(figsize=(10, 6))
-    sns.lineplot(x='Date', y='Predicted Price', data=predictions_df, marker='o')
-    plt.title('Future Price Prediction')
-    plt.xlabel('Date')
-    plt.ylabel('Predicted Price')
-    plt.xticks(rotation=45)
-    plt.tight_layout()
-    st.pyplot(plt)
+    try:
+        plt.figure(figsize=(10, 6))
+        sns.lineplot(x='Date', y='Predicted Price', data=predictions_df, marker='o')
+        plt.title('Future Price Prediction')
+        plt.xlabel('Date')
+        plt.ylabel('Predicted Price')
+        plt.xticks(rotation=45)
+        plt.tight_layout()
+        st.pyplot(plt)
+    except Exception as e:
+        st.error(f"Error plotting predictions: {e}")
 
 # Streamlit app
 def main():
@@ -190,7 +213,8 @@ def main():
             # Step 1: Get Stock Data
             st.header("Stock Data")
             stock_data = get_stock_data(ticker)
-            st.write(stock_data)
+            if not stock_data.empty:
+                st.write(stock_data)
 
             # Step 2: Get Sentiment Data
             st.header("Sentiment Analysis")
@@ -205,12 +229,13 @@ def main():
 
             # Step 3: Get Additional Financial Metrics
             st.header("Additional Financial Metrics")
-            st.write(financial_metrics)
+            if financial_metrics:
+                st.write(financial_metrics)
 
             # Allow user to enter missing financial metrics manually if unavailable
-            if financial_metrics['PE Ratio'] is None:
+            if financial_metrics.get('PE Ratio') is None:
                 financial_metrics['PE Ratio'] = st.number_input("Enter P/E Ratio (if unavailable):", min_value=0.0)
-            if financial_metrics['EPS'] is None:
+            if financial_metrics.get('EPS') is None:
                 financial_metrics['EPS'] = st.number_input("Enter Earnings Per Share (EPS) (if unavailable):", min_value=0.0)
 
             # Step 4: Perform Valuation
@@ -221,7 +246,8 @@ def main():
             if valuation_method in ["DCF", "Both"]:
                 if free_cash_flow is not None:
                     dcf_valuation = discounted_cash_flow(free_cash_flow, discount_rate, average_sentiment, growth_rate)
-                    st.write(f"DCF Valuation (Adjusted with Sentiment and Growth Rate): ${dcf_valuation:.2f}")
+                    if dcf_valuation is not None:
+                        st.write(f"DCF Valuation (Adjusted with Sentiment and Growth Rate): ${dcf_valuation:.2f}")
                 else:
                     st.write("Unable to retrieve sufficient financial data for DCF valuation. Please enter the data manually if available.")
 
@@ -240,9 +266,9 @@ def main():
 
             if prediction_method == "LSTM":
                 future_prices_df = predict_future_prices_lstm(ticker, days)
-
-            st.write(future_prices_df)
-            plot_predictions(future_prices_df)
+                if not future_prices_df.empty:
+                    st.write(future_prices_df)
+                    plot_predictions(future_prices_df)
 
 if __name__ == "__main__":
     main()
