@@ -75,7 +75,8 @@ def get_additional_financial_metrics(ticker):
 
 # Function to get news articles using News API
 def get_news_articles(ticker):
-    api_key = os.getenv("NEWS_API_KEY")
+    api_key = "40714f13bb7a4f4f92df63f537b78eb7"
+    
     query = f"{ticker} AND (earnings OR growth OR revenue OR forecast OR stock analysis)"
     url = f"https://newsapi.org/v2/everything?q={query}&sortBy=popularity&apiKey={api_key}"
     try:
@@ -95,7 +96,10 @@ def get_news_articles(ticker):
 def analyze_sentiment(text):
     try:
         blob = TextBlob(text)
-        return blob.sentiment.polarity
+        sentiment = blob.sentiment.polarity
+        if np.isnan(sentiment):
+            return 0
+        return sentiment
     except Exception as e:
         st.error(f"Error analyzing sentiment: {e}")
         return 0
@@ -163,7 +167,7 @@ def predict_future_prices_lstm(ticker, days=30):
             X_pred = np.reshape(last_sequence, (1, seq_length, 1))
             predicted_price = model.predict(X_pred)
             predictions.append(predicted_price[0, 0])
-            last_sequence = np.append(last_sequence[1:], predicted_price.flatten(), axis=0)
+            last_sequence = np.append(last_sequence[1:], predicted_price[0, 0])
 
         predicted_prices = scaler.inverse_transform(np.array(predictions).reshape(-1, 1))
         future_dates = pd.date_range(start=hist.index.max(), periods=days + 1, freq='B')[1:]
