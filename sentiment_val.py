@@ -19,12 +19,14 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.preprocessing import StandardScaler
 import torch
 from torch.utils.data import Dataset
+import os
 
 # Function to get stock data from Yahoo Finance
+@st.cache_data
 def get_stock_data(ticker):
     try:
         stock = yf.Ticker(ticker)
-        return stock.history(period='1y')  # Historical data for 1 year
+        return stock.history(period='5y')  # Extended historical data for 5 years
     except Exception as e:
         st.error(f"Error retrieving stock data for {ticker}: {e}")
         return pd.DataFrame()
@@ -37,11 +39,11 @@ def get_financial_data(ticker, user_input=False, user_operating_cash_flow=None, 
             operating_cash_flow = user_operating_cash_flow
             capital_expenditure = user_capital_expenditure
         else:
-            if 'Total Cash From Operating Activities' in stock.cashflow.index and 'Capital Expenditures' in stock.cashflow.index:
-                operating_cash_flow = stock.cashflow.loc['Total Cash From Operating Activities'][0]
-                capital_expenditure = stock.cashflow.loc['Capital Expenditures'][0]
-            else:
-                return None  # Return None if required financial data is missing
+            if 'Total Cash From Operating Activities' not in stock.cashflow.index or 'Capital Expenditures' not in stock.cashflow.index:
+                st.warning("Required financial data is missing for the selected ticker.")
+                return None
+            operating_cash_flow = stock.cashflow.loc['Total Cash From Operating Activities'][0]
+            capital_expenditure = stock.cashflow.loc['Capital Expenditures'][0]
 
         free_cash_flow = operating_cash_flow - abs(capital_expenditure)
         return free_cash_flow
@@ -73,7 +75,7 @@ def get_additional_financial_metrics(ticker):
 
 # Function to get news articles using News API
 def get_news_articles(ticker):
-    api_key = "40714f13bb7a4f4f92df63f537b78eb7"
+    api_key = os.getenv("NEWS_API_KEY")
     query = f"{ticker} AND (earnings OR growth OR revenue OR forecast OR stock analysis)"
     url = f"https://newsapi.org/v2/everything?q={query}&sortBy=popularity&apiKey={api_key}"
     try:
@@ -124,7 +126,7 @@ def pe_valuation(pe_ratio, earnings_per_share):
 def predict_future_prices_lstm(ticker, days=30):
     try:
         stock = yf.Ticker(ticker)
-        hist = stock.history(period="1y")
+        hist = stock.history(period="5y")  # Use longer history for better training data
         hist['Close'] = hist['Close'].astype(float)
 
         # Preparing data for LSTM
@@ -152,7 +154,7 @@ def predict_future_prices_lstm(ticker, days=30):
         model.compile(optimizer='adam', loss='mean_squared_error')
 
         # Training the model
-        model.fit(X, y, batch_size=10, epochs=1)  # Increased batch size and reduced epochs for faster training
+        model.fit(X, y, batch_size=32, epochs=10)  # Increased epochs for better training
 
         # Predicting future prices
         predictions = []
@@ -161,10 +163,10 @@ def predict_future_prices_lstm(ticker, days=30):
             X_pred = np.reshape(last_sequence, (1, seq_length, 1))
             predicted_price = model.predict(X_pred)
             predictions.append(predicted_price[0, 0])
-            last_sequence = np.append(last_sequence[1:], predicted_price, axis=0)
+            last_sequence = np.append(last_sequence[1:], predicted_price.flatten(), axis=0)
 
         predicted_prices = scaler.inverse_transform(np.array(predictions).reshape(-1, 1))
-        future_dates = [hist.index.max() + datetime.timedelta(days=i) for i in range(1, days + 1)]
+        future_dates = pd.date_range(start=hist.index.max(), periods=days + 1, freq='B')[1:]
 
         return pd.DataFrame({'Date': future_dates, 'Predicted Price': predicted_prices.flatten()})
     except Exception as e:
@@ -220,7 +222,7 @@ def main():
             st.header("Sentiment Analysis")
             news_articles = get_news_articles(ticker)
             sentiment_scores = [analyze_sentiment(article) for article in news_articles]
-            if sentiment_scores:
+            if len(sentiment_scores) > 0:
                 average_sentiment = sum(sentiment_scores) / len(sentiment_scores)
                 st.write(f"Average Sentiment Score: {average_sentiment:.2f}")
             else:
