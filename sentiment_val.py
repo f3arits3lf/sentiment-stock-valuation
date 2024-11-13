@@ -14,12 +14,13 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import tensorflow as tf
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import LSTM, Dense
+from tensorflow.keras.layers import LSTM, Dense, Dropout
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.preprocessing import StandardScaler
 import torch
 from torch.utils.data import Dataset
 import os
+import time
 
 # Function to get stock data from Yahoo Finance
 @st.cache_data
@@ -74,9 +75,9 @@ def get_additional_financial_metrics(ticker):
         return {}
 
 # Function to get news articles using News API
+@st.cache_data
 def get_news_articles(ticker):
     api_key = "40714f13bb7a4f4f92df63f537b78eb7"
-    
     query = f"{ticker} AND (earnings OR growth OR revenue OR forecast OR stock analysis)"
     url = f"https://newsapi.org/v2/everything?q={query}&sortBy=popularity&apiKey={api_key}"
     try:
@@ -85,6 +86,9 @@ def get_news_articles(ticker):
             articles = response.json().get('articles', [])
             news_articles = [article['description'] for article in articles if article['description']]
             return news_articles[:5]  # Limit to 5 articles
+        elif response.status_code == 429:
+            st.warning("Rate limit exceeded for News API. Please try again later.")
+            return []
         else:
             st.error(f"Error fetching news articles: {response.status_code}")
             return []
@@ -150,15 +154,17 @@ def predict_future_prices_lstm(ticker, days=30):
 
         # Building the LSTM model
         model = Sequential()
-        model.add(LSTM(units=25, return_sequences=True, input_shape=(X.shape[1], 1)))  # Reduced units to lower complexity
-        model.add(LSTM(units=25, return_sequences=False))
-        model.add(Dense(units=10))
+        model.add(LSTM(units=50, return_sequences=True, input_shape=(X.shape[1], 1)))  # Increased units to better capture patterns
+        model.add(Dropout(0.2))
+        model.add(LSTM(units=50, return_sequences=False))
+        model.add(Dropout(0.2))
+        model.add(Dense(units=25))
         model.add(Dense(units=1))
 
         model.compile(optimizer='adam', loss='mean_squared_error')
 
         # Training the model
-        model.fit(X, y, batch_size=32, epochs=10)  # Increased epochs for better training
+        model.fit(X, y, batch_size=32, epochs=20, verbose=1)  # Increased epochs for better training
 
         # Predicting future prices
         predictions = []
